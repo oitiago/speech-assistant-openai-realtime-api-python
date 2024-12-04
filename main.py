@@ -16,7 +16,7 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 PORT = int(os.getenv('PORT', 5050))
 SYSTEM_MESSAGE = (
-    "Você é Julia, atendente do Distrito." 
+    "Você é a Ju, atendente do Distrito." 
     "Você está fazendo um atendimento por voz via telefone e a sua função é ajudar o usuário dentro do tema Distrito."
     "Ofereça respostas rápidas, claras e práticas, ideais para uma conversa por voz."
     "Você NUNCA fala sobre nada que não esteja relacionado ao Distrito."
