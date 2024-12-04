@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from twilio.twiml.voice_response import VoiceResponse, Connect, Say, Stream
+from twilio.rest import Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -226,3 +227,49 @@ async def initialize_session(openai_ws):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+# Outgoing Calls
+
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_NUMBER = os.getenv('TWILIO_NUMBER')
+
+if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_NUMBER]):
+    raise ValueError('Missing Twilio configuration in the environment variables.')
+
+twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+
+@app.post("/make-call")
+async def make_call(request: Request):
+    data = await request.json()
+    to_number = data.get('to')
+    if not to_number:
+        return JSONResponse(status_code=400, content={"error": "Missing 'to' phone number"})
+
+    host = request.url.hostname
+    # Use the appropriate protocol and port
+    protocol = 'https' if request.url.scheme == 'https' else 'http'
+    url = f'{protocol}://{host}/outbound-call'
+
+    try:
+        call = twilio_client.calls.create(
+            to=to_number,
+            from_=TWILIO_NUMBER,
+            url=url
+        )
+        return JSONResponse(content={"message": "Call initiated", "call_sid": call.sid})
+    except Exception as e:
+        print(f"Error initiating call: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    
+@app.api_route("/outbound-call", methods=["GET", "POST"])
+async def handle_outbound_call(request: Request):
+    response = VoiceResponse()
+    # Optional: Add any initial messages or prompts
+    response.say("Conectando sua chamada. Por favor, aguarde.")
+    host = request.url.hostname
+    protocol = 'https' if request.url.scheme == 'https' else 'http'
+    connect = Connect()
+    connect.stream(url=f'wss://{host}/media-stream')
+    response.append(connect)
+    return HTMLResponse(content=str(response), media_type="application/xml")    
