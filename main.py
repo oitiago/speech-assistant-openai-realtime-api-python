@@ -3,23 +3,25 @@ import json
 import base64
 import asyncio
 import websockets
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, WebSocket, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
-from twilio.twiml.voice_response import VoiceResponse, Connect, Say, Stream
+from twilio.twiml.voice_response import VoiceResponse, Connect
+from twilio.rest import Client
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Load environment variables from .env file only if it exists
-# if os.path.exists('.env'):
-    # load_dotenv()
 
 # Configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 PORT = int(os.getenv('PORT', 5050))
 SYSTEM_MESSAGE = (
-    "Você é Julia, atendente virtual da empresa Distrito. Sua missão é oferecer respostas rápidas, claras e práticas em uma conversa por voz. Se o usuário perguntar, explique os serviços do Distrito de forma simples e objetiva, sem depender de links ou instruções que exigem leitura. Use frases curtas, tom amigável e direto. Priorize clareza e praticidade, ajustando a explicação ao nível de conhecimento do usuário. Responda com o necessário, mas esteja sempre pronta para detalhar ou esclarecer se solicitado. Converse de maneira humanizada ideal para o telefone. O distrito é uma plataforma de inovação aberta que conecta startups, empresas e investidores. "
+    "Você é a Ju, atendente do Distrito."
+    "Você está fazendo um atendimento por voz via telefone e a sua função é ajudar o usuário restrito ao tema Distrito."
+    "Ofereça respostas rápidas, claras e práticas, ideais para uma conversa por voz."
+    "Você NUNCA fala sobre nada que não esteja relacionado ao Distrito."
+    "Certifique-se em não falar de concorrentes ou denegrir a imagem do Distrito de maneira alguma."
+    "O Distrito é uma plataforma de inovação aberta que conecta startups, empresas e investidores."
 )
 VOICE = 'alloy'
 LOG_EVENT_TYPES = [
@@ -30,10 +32,22 @@ LOG_EVENT_TYPES = [
 ]
 SHOW_TIMING_MATH = False
 
+BASE_URL = os.getenv('BASE_URL', 'https://your-public-domain.com')  # Update with your public domain
+
 app = FastAPI()
 
 if not OPENAI_API_KEY:
     raise ValueError('Missing the OpenAI API key. Please set it in the .env file.')
+
+# Twilio Configuration
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_NUMBER = os.getenv('TWILIO_NUMBER')
+
+if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_NUMBER]):
+    raise ValueError('Missing Twilio configuration in the environment variables.')
+
+twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
 @app.get("/", response_class=JSONResponse)
 async def index_page():
@@ -43,15 +57,43 @@ async def index_page():
 async def handle_incoming_call(request: Request):
     """Handle incoming call and return TwiML response to connect to Media Stream."""
     response = VoiceResponse()
-    # <Say> punctuation to improve text-to-speech flow
     response.say("...")
     response.pause(length=1)
     response.say("...")
-    host = request.url.hostname
     connect = Connect()
-    connect.stream(url=f'wss://{host}/media-stream')
+    connect.stream(url=f'{BASE_URL.replace("https", "wss")}/media-stream')
     response.append(connect)
     return HTMLResponse(content=str(response), media_type="application/xml")
+
+@app.api_route("/outbound-call", methods=["GET", "POST"])
+async def handle_outbound_call(request: Request):
+    """Handle outbound call and return TwiML response to connect to Media Stream."""
+    response = VoiceResponse()
+    response.say("Conectando sua chamada. Por favor, aguarde.")
+    connect = Connect()
+    connect.stream(url=f'{BASE_URL.replace("https", "wss")}/media-stream')
+    response.append(connect)
+    return HTMLResponse(content=str(response), media_type="application/xml")
+
+@app.post("/make-call")
+async def make_call(request: Request):
+    data = await request.json()
+    to_number = data.get('to')
+    if not to_number:
+        raise HTTPException(status_code=400, detail="Missing 'to' phone number")
+
+    url = f'{BASE_URL}/outbound-call'
+
+    try:
+        call = twilio_client.calls.create(
+            to=to_number,
+            from_=TWILIO_NUMBER,
+            url=url
+        )
+        return JSONResponse(content={"message": "Call initiated", "call_sid": call.sid})
+    except Exception as e:
+        print(f"Error initiating call: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
@@ -74,7 +116,7 @@ async def handle_media_stream(websocket: WebSocket):
         last_assistant_item = None
         mark_queue = []
         response_start_timestamp_twilio = None
-        
+
         async def receive_from_twilio():
             """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
             nonlocal stream_sid, latest_media_timestamp
@@ -133,7 +175,7 @@ async def handle_media_stream(websocket: WebSocket):
 
                         await send_mark(websocket, stream_sid)
 
-                    # Trigger an interruption. Your use case might work better using input_audio_buffer.speech_stopped, or combining the two.
+                    # Trigger an interruption. Your use case might work better using `input_audio_buffer.speech_stopped`, or combining the two.
                     if response.get('type') == 'input_audio_buffer.speech_started':
                         print("Speech started detected.")
                         if last_assistant_item:
@@ -184,24 +226,6 @@ async def handle_media_stream(websocket: WebSocket):
 
         await asyncio.gather(receive_from_twilio(), send_to_twilio())
 
-async def send_initial_conversation_item(openai_ws):
-    """Send initial conversation item if AI talks first."""
-    initial_conversation_item = {
-        "type": "conversation.item.create",
-        "item": {
-            "type": "message",
-            "role": "user",
-            "content": [
-                {
-                    "type": "input_text",
-                    "text": "Alou..'"
-                }
-            ]
-        }
-    }
-    await openai_ws.send(json.dumps(initial_conversation_item))
-    await openai_ws.send(json.dumps({"type": "response.create"}))
-
 async def initialize_session(openai_ws):
     """Control initial session with OpenAI."""
     session_update = {
@@ -221,6 +245,24 @@ async def initialize_session(openai_ws):
 
     # Uncomment the next line to have the AI speak first
     await send_initial_conversation_item(openai_ws)
+
+async def send_initial_conversation_item(openai_ws):
+    """Send initial conversation item if AI talks first."""
+    initial_conversation_item = {
+        "type": "conversation.item.create",
+        "item": {
+            "type": "message",
+            "role": "user",
+            "content": [
+                {
+                    "type": "input_text",
+                    "text": "Alou.."
+                }
+            ]
+        }
+    }
+    await openai_ws.send(json.dumps(initial_conversation_item))
+    await openai_ws.send(json.dumps({"type": "response.create"}))
 
 if __name__ == "__main__":
     import uvicorn
