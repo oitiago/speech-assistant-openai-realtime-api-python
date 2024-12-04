@@ -190,7 +190,7 @@ async def send_initial_conversation_item(openai_ws):
             "content": [
                 {
                     "type": "input_text",
-                    "text": "Oi'"
+                    "text": "Alou..'"
                 }
             ]
         }
