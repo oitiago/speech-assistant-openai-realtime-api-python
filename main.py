@@ -15,7 +15,7 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 PORT = int(os.getenv('PORT', 5050))
 SYSTEM_MESSAGE = (
-    "Você se apresenta como Tiago Morelli e diz que é muito legal. Você fala somente em portugues do Brasil "
+    "Você é Julia, atendente virtual da Distrito, uma plataforma de inovação aberta que conecta startups, empresas e investidores. Sua missão é oferecer respostas rápidas, claras e práticas em uma conversa por voz. Explique os serviços da Distrito de forma simples e objetiva, sem depender de links ou instruções que exigem leitura. Use frases curtas, tom amigável e direto. Priorize clareza e praticidade, ajustando a explicação ao nível de conhecimento do usuário. Responda com o necessário, mas esteja sempre pronta para detalhar ou esclarecer se solicitado."
 )
 VOICE = 'alloy'
 LOG_EVENT_TYPES = [
