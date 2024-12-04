@@ -40,9 +40,9 @@ async def handle_incoming_call(request: Request):
     """Handle incoming call and return TwiML response to connect to Media Stream."""
     response = VoiceResponse()
     # <Say> punctuation to improve text-to-speech flow
-    response.say("Só um momento...")
+    response.say("...")
     response.pause(length=1)
-    response.say("Oi! Alou, quem fala?")
+    response.say("...")
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
