@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import asyncio
-import websockets
+import websocket
 from fastapi import FastAPI, WebSocket, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
